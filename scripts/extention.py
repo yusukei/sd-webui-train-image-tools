@@ -58,55 +58,97 @@ def save_image_dir(image, path, basename, extension='png'):
     return full_path
 
 
-def process_image(image, is_remove_bg, is_face_only, padding, model, is_cpu_only):
-    face_detector = dlib.get_frontal_face_detector()
-
-    session = None
+def remove_bg(image: Image, model: str, is_cpu_only: bool) -> Image:
     if is_cpu_only:
         session = cpu_session_factory.new_session(model)
     else:
         session = gpu_session_factory.new_session(model)
 
-    if is_remove_bg:
-        image = remove(image, session=session)
+    return remove(image, session=session)
 
+
+def trimming_face(image: Image, padding: float) -> list[Image]:
+    # convert to OpenCV format
     image = pil2cv(image)
-    result = []
+
+    face_detector = dlib.get_frontal_face_detector()
+    faces = face_detector(image, 1)
+
+    results = []
+    for i in range(0, len(faces)):
+        img_h, img_w, c = image.shape
+        face_h = int(faces[i].bottom() - faces[i].top())
+        face_w = int(faces[i].right() - faces[i].left())
+
+        rect_top = int(faces[i].top()) - (face_h * padding)
+        if rect_top < 0:
+            rect_top = 0
+        rect_bottom = int(faces[i].bottom()) + (face_h * padding)
+        if rect_bottom > img_h:
+            rect_bottom = img_h
+        rect_left = int(faces[i].left()) - (face_w * padding)
+        if rect_left < 0:
+            rect_left = 0
+        rect_right = int(faces[i].right()) + (face_w * padding)
+        if rect_right > img_w:
+            rect_right = img_w
+
+        face_img = image[int(rect_top):int(rect_bottom), int(rect_left):int(rect_right)]
+
+        # convert to PIL format
+        face_img = cv2pil(face_img)
+
+        results.append(face_img)
+
+    return results
+
+
+def crop_to_square(image: Image) -> Image:
+    width, height = image.size
+    square_size = min(image.size)
+
+    if width > height:
+        top = 0
+        bottom = square_size
+        left = (width - square_size) / 2
+        right = left + square_size
+        box = (left, top, right, bottom)
+    else:
+        left = 0
+        right = square_size
+        top = (height - square_size) / 2
+        bottom = top + square_size
+        box = (left, top, right, bottom)
+
+    return image.crop(box)
+
+
+def process_image(
+        image: Image, is_remove_bg: bool, is_face_only: bool, is_crop: bool,
+        padding: float, model: str, is_cpu_only: bool):
+    processed = []
+
+    if is_remove_bg:
+        image = remove_bg(image, model, is_cpu_only)
 
     if is_face_only:
-        faces = face_detector(image, 1)
-        if len(faces) > 0:
-            for i in range(0, len(faces)):
-                img_h, img_w, c = image.shape
-                face_h = int(faces[i].bottom() - faces[i].top())
-                face_w = int(faces[i].right() - faces[i].left())
-
-                rect_top = int(faces[i].top()) - (face_h * padding)
-                if rect_top < 0:
-                    rect_top = 0
-                rect_bottom = int(faces[i].bottom()) + (face_h * padding)
-                if rect_bottom > img_h:
-                    rect_bottom = img_h
-                rect_left = int(faces[i].left()) - (face_w * padding)
-                if rect_left < 0:
-                    rect_left = 0
-                rect_right = int(faces[i].right()) + (face_w * padding)
-                if rect_right > img_w:
-                    rect_right = img_w
-
-                face_img = image[int(rect_top):int(rect_bottom), int(rect_left):int(rect_right)]
-                result.append(cv2pil(face_img))
-
+        processed.extend(trimming_face(image, padding))
     else:
-        result.append(cv2pil(image))
+        processed.append(image)
 
-    return result
+    if is_crop:
+        tmp = []
+        for img in processed:
+            tmp.append(crop_to_square(img))
+        processed = tmp
+
+    return processed
 
 
-def processing(single_image, input_dir, output_dir, show_result, input_tab_state, is_remove_bg, is_face_only, padding, model, is_cpu_only):
+def processing(single_image, input_dir, output_dir, show_result, input_tab_state, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only):
     # 0: single
     if input_tab_state == 0:
-        processed = process_image(single_image, is_remove_bg, is_face_only, padding, model, is_cpu_only)
+        processed = process_image(single_image, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only)
         return processed
 
     elif input_tab_state == 2:
@@ -117,8 +159,9 @@ def processing(single_image, input_dir, output_dir, show_result, input_tab_state
                 image = Image.open(f)
             except Exception:
                 continue
+            print(f)
 
-            imgs = process_image(image, is_remove_bg, is_face_only, padding, model, is_cpu_only)
+            imgs = process_image(image, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only)
             processed.extend(imgs)
 
             if output_dir != "":
@@ -155,6 +198,7 @@ def on_ui_tabs():
                     is_remove_bg = gr.Checkbox(label="Remove Background", show_label=True, value=True)
                     is_face_only = gr.Checkbox(label="Face Only", show_label=True, value=True)
                     padding = gr.Slider(0.0, 2.0, value=0.8, step=0.1, label="Face Padding", show_label=True)
+                    is_crop = gr.Checkbox(label="Crop to Square", show_label=True, value=True)
                     model = gr.Dropdown(seg_models, label="Model", value="u2net")
                     is_cpu_only = gr.Checkbox(label="CPU Only", show_label=True, value=True)
             with gr.Column():
@@ -167,12 +211,10 @@ def on_ui_tabs():
                 submit.click(
                     processing,
                     inputs=[single_image, input_dir, output_dir, show_result, input_tab_state,
-                            is_remove_bg, is_face_only, padding, model, is_cpu_only],
+                            is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only],
                     outputs=gallery
                 )
 
-            # TODO: ここにコンポーネント/処理を足していく (cf. https://gradio.app/docs/#components)
         return [(ui_component, "Train Image Tools", "loratools")]
 
-# 作成したコンポーネントをwebuiに登録
 script_callbacks.on_ui_tabs(on_ui_tabs)
