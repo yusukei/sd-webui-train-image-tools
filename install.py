@@ -8,6 +8,7 @@ packages = [
     "Pillow",
     "dlib-binary",
     "rembg",
+    "pooch",
 ]
 
 for package in packages:

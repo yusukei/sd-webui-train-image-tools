@@ -11,9 +11,9 @@ from PIL import Image
 import numpy as np
 import dlib
 import cv2
-
-from scripts.rembg_interface import remove
-
+from rembg import remove
+import onnxruntime as ort
+from rembg import session_factory
 
 seg_models = ['u2net', 'u2netp', 'u2net_human_seg', 'u2net_cloth_seg', 'silueta']
 
@@ -42,6 +42,7 @@ def cv2pil(image):
     return new_image
 
 
+
 def save_image_dir(image, path, basename, extension='png'):
     # Ensure the directory exists
     os.makedirs(path, exist_ok=True)
@@ -56,13 +57,27 @@ def save_image_dir(image, path, basename, extension='png'):
     return full_path
 
 
-def remove_bg(image: Image, model: str, is_cpu_only: bool) -> Image:
-    return remove(image, model, is_cpu_only)
+
+def remove_bg(image: np.array, model: str="u2net", is_cpu_only: bool=False):
+    def get_available_providers():
+        print('get_available_providers')
+        return (['CPUExecutionProvider'])
+
+    if is_cpu_only:
+        _get_available_providers = ort.get_available_providers
+        ort.get_available_providers = get_available_providers
+
+    session = session_factory.new_session(model)
+    _image = remove(image, session)
+
+    if is_cpu_only:
+        ort.get_available_providers = _get_available_providers
+
+    return _image
 
 
-def trimming_face(image: Image, padding: float) -> list[Image]:
-    # convert to OpenCV format
-    image = pil2cv(image)
+def trimming_face(_image: Image, padding: float) -> list[Image]:
+    image = pil2cv(_image)
 
     face_detector = dlib.get_frontal_face_detector()
     faces = face_detector(image, 1)
@@ -86,10 +101,11 @@ def trimming_face(image: Image, padding: float) -> list[Image]:
         if rect_right > img_w:
             rect_right = img_w
 
-        face_img = image[int(rect_top):int(rect_bottom), int(rect_left):int(rect_right)]
+        # face_img = src[int(rect_top):int(rect_bottom), int(rect_left):int(rect_right)]
+        face_img = _image.crop((rect_left, rect_top, rect_right, rect_bottom))
 
         # convert to PIL format
-        face_img = cv2pil(face_img)
+        # face_img = cv2pil(face_img)
 
         results.append(face_img)
 
@@ -123,14 +139,15 @@ def process_image(
 
     if is_remove_bg:
         print("remove_bg")
-        image = remove_bg(image, model, is_cpu_only)
-        # image = cv2pil(pil2cv(image))
+        _image = remove_bg(image, model, is_cpu_only)
+    else:
+        _image = image
 
     if is_face_only:
         print("trimming_face")
-        processed.extend(trimming_face(image, padding))
+        processed.extend(trimming_face(_image, padding))
     else:
-        processed.append(image)
+        processed.append(_image)
 
     if is_crop:
         print("crop_to_square")
