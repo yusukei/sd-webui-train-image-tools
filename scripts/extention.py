@@ -154,12 +154,15 @@ def processing(single_image, input_dir, output_dir, show_result, input_tab_state
     elif input_tab_state == 2:
         processed = []
         files = shared.listfiles(input_dir)
+        count = 1
+        size = len(files)
+
         for f in files:
             try:
                 image = Image.open(f)
             except Exception:
                 continue
-            print(f)
+            print(f'{count}/{size} {f}')
 
             imgs = process_image(image, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only)
             processed.extend(imgs)
@@ -176,6 +179,9 @@ def processing(single_image, input_dir, output_dir, show_result, input_tab_state
                         extension="png",
                     )
                     i += 1
+
+            count += 1
+
         if (show_result):
             return processed
         else:
