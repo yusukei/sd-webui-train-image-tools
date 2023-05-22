@@ -7,6 +7,7 @@ packages = [
     "numpy",
     "Pillow",
     "dlib-binary",
+    "rembg",
 ]
 
 for package in packages:
