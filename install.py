@@ -1,6 +1,8 @@
 import launch
+import importlib
 
-packages = [
+packages = []
+_packages = [
     "onnx",
     "onnxruntime-gpu",
     "opencv-python",
@@ -10,6 +12,12 @@ packages = [
     "rembg",
     "pooch",
 ]
+
+for name in _packages:
+    try:
+        importlib.__import__(name)
+    except ImportError:
+        packages.append(name)
 
 for package in packages:
     if not launch.is_installed(package):
