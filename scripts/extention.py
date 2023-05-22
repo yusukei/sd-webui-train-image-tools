@@ -6,15 +6,13 @@ import tempfile
 from modules import script_callbacks
 import modules.shared as shared
 
-from rembg import remove
 from PIL import Image
 
 import numpy as np
 import dlib
 import cv2
 
-from scripts import cpu_session_factory
-from rembg import session_factory as gpu_session_factory
+from scripts.rembg_interface import remove
 
 
 seg_models = ['u2net', 'u2netp', 'u2net_human_seg', 'u2net_cloth_seg', 'silueta']
@@ -59,12 +57,7 @@ def save_image_dir(image, path, basename, extension='png'):
 
 
 def remove_bg(image: Image, model: str, is_cpu_only: bool) -> Image:
-    if is_cpu_only:
-        session = cpu_session_factory.new_session(model)
-    else:
-        session = gpu_session_factory.new_session(model)
-
-    return remove(image, session=session)
+    return remove(image, model, is_cpu_only)
 
 
 def trimming_face(image: Image, padding: float) -> list[Image]:
@@ -129,14 +122,18 @@ def process_image(
     processed = []
 
     if is_remove_bg:
+        print("remove_bg")
         image = remove_bg(image, model, is_cpu_only)
+        # image = cv2pil(pil2cv(image))
 
     if is_face_only:
+        print("trimming_face")
         processed.extend(trimming_face(image, padding))
     else:
         processed.append(image)
 
     if is_crop:
+        print("crop_to_square")
         tmp = []
         for img in processed:
             tmp.append(crop_to_square(img))
