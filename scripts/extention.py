@@ -1,21 +1,18 @@
-import modules.scripts as scripts
-import gradio as gr
 import os
-import tempfile
 
-from modules import script_callbacks
-import modules.shared as shared
-
-from PIL import Image
-
-import numpy as np
-import dlib
 import cv2
-from rembg import remove
+import dlib
+import gradio as gr
+import modules.shared as shared
+import numpy as np
 import onnxruntime as ort
+from PIL import Image
+from modules import script_callbacks
+from rembg import remove
 from rembg import session_factory
 
 seg_models = ['u2net', 'u2netp', 'u2net_human_seg', 'u2net_cloth_seg', 'silueta']
+
 
 def pil2cv(image: Image) -> np.ndarray:
     ''' PIL型 -> OpenCV型 '''
@@ -29,7 +26,7 @@ def pil2cv(image: Image) -> np.ndarray:
     return new_image
 
 
-def cv2pil(image):
+def cv2pil(image: np.array) -> Image:
     ''' OpenCV型 -> PIL型 '''
     new_image = image.copy()
     if new_image.ndim == 2:  # モノクロ
@@ -42,8 +39,7 @@ def cv2pil(image):
     return new_image
 
 
-
-def save_image_dir(image, path, basename, extension='png'):
+def save_image_dir(image: Image, path: str, basename: str, extension='png') -> str:
     # Ensure the directory exists
     os.makedirs(path, exist_ok=True)
 
@@ -57,10 +53,10 @@ def save_image_dir(image, path, basename, extension='png'):
     return full_path
 
 
-
-def remove_bg(image: np.array, model: str="u2net", is_cpu_only: bool=False):
+def remove_bg(image: np.array, model: str = "u2net", is_cpu_only: bool = False):
     def get_available_providers():
-        print('get_available_providers')
+        # cuda, cuDDNなどが正しく設定されていないとエラーになるので、
+        # 強制的にCPUのみを返すようにする
         return (['CPUExecutionProvider'])
 
     if is_cpu_only:
@@ -68,7 +64,7 @@ def remove_bg(image: np.array, model: str="u2net", is_cpu_only: bool=False):
         ort.get_available_providers = get_available_providers
 
     session = session_factory.new_session(model)
-    _image = remove(image, session)
+    _image = remove(image, session=session)
 
     if is_cpu_only:
         ort.get_available_providers = _get_available_providers
@@ -101,11 +97,7 @@ def trimming_face(_image: Image, padding: float) -> list[Image]:
         if rect_right > img_w:
             rect_right = img_w
 
-        # face_img = src[int(rect_top):int(rect_bottom), int(rect_left):int(rect_right)]
         face_img = _image.crop((rect_left, rect_top, rect_right, rect_bottom))
-
-        # convert to PIL format
-        # face_img = cv2pil(face_img)
 
         results.append(face_img)
 
@@ -138,19 +130,16 @@ def process_image(
     processed = []
 
     if is_remove_bg:
-        print("remove_bg")
         _image = remove_bg(image, model, is_cpu_only)
     else:
         _image = image
 
     if is_face_only:
-        print("trimming_face")
         processed.extend(trimming_face(_image, padding))
     else:
         processed.append(_image)
 
     if is_crop:
-        print("crop_to_square")
         tmp = []
         for img in processed:
             tmp.append(crop_to_square(img))
@@ -159,7 +148,9 @@ def process_image(
     return processed
 
 
-def processing(single_image, input_dir, output_dir, show_result, input_tab_state, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only):
+def processing(single_image: Image, input_dir: str, output_dir: str, show_result: bool,
+               input_tab_state: int, is_remove_bg: bool, is_face_only: bool, is_crop: bool,
+               padding: float, model: str, is_cpu_only: bool):
     # 0: single
     if input_tab_state == 0:
         processed = process_image(single_image, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only)
@@ -189,7 +180,7 @@ def processing(single_image, input_dir, output_dir, show_result, input_tab_state
                     save_image_dir(
                         img,
                         path=output_dir,
-                        basename=basename+'-%d'%(i),
+                        basename=basename + '-%d' % (i),
                         extension="png",
                     )
                     i += 1
@@ -200,6 +191,7 @@ def processing(single_image, input_dir, output_dir, show_result, input_tab_state
             return processed
         else:
             return None
+
 
 # コンポーネントを作成
 def on_ui_tabs():
@@ -236,5 +228,6 @@ def on_ui_tabs():
                 )
 
         return [(ui_component, "Train Image Tools", "loratools")]
+
 
 script_callbacks.on_ui_tabs(on_ui_tabs)
