@@ -221,7 +221,7 @@ def processing(single_image: Image, input_dir: str, output_dir: str, show_result
                 continue
             print(f'{count}/{size} {f}')
 
-            imgs = process_image(image, is_remove_bg, is_face_only, face_type, is_crop, padding, model, is_cpu_only)
+            imgs = process_image(image, is_remove_bg, bg_type, is_face_only, face_type, is_crop, padding, model, is_cpu_only)
             processed.extend(imgs)
 
             if output_dir != "":
