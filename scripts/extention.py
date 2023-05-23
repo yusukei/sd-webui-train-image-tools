@@ -11,6 +11,7 @@ from modules import script_callbacks
 from rembg import remove
 from rembg import session_factory
 
+bg_types = ['transparent', 'white', 'black']
 seg_models = ['u2net', 'u2netp', 'u2net_human_seg', 'u2net_cloth_seg', 'silueta']
 
 
@@ -53,7 +54,7 @@ def save_image_dir(image: Image, path: str, basename: str, extension='png') -> s
     return full_path
 
 
-def remove_bg(image: np.array, model: str = "u2net", is_cpu_only: bool = False):
+def remove_bg(image: np.array, bg_types: str, model: str, is_cpu_only: bool):
     def get_available_providers():
         # cuda, cuDDNなどが正しく設定されていないとエラーになるので、
         # 強制的にCPUのみを返すようにする
@@ -63,8 +64,14 @@ def remove_bg(image: np.array, model: str = "u2net", is_cpu_only: bool = False):
         _get_available_providers = ort.get_available_providers
         ort.get_available_providers = get_available_providers
 
+    bgcolor = (0, 0, 0, 0)
+    if bg_types == 'white':
+        bgcolor = (255, 255, 255, 255)
+    elif bg_types == 'black':
+        bgcolor = (0, 0, 0, 255)
+
     session = session_factory.new_session(model)
-    _image = remove(image, session=session)
+    _image = remove(image, session=session, bgcolor=bgcolor)
 
     if is_cpu_only:
         ort.get_available_providers = _get_available_providers
@@ -125,12 +132,12 @@ def crop_to_square(image: Image) -> Image:
 
 
 def process_image(
-        image: Image, is_remove_bg: bool, is_face_only: bool, is_crop: bool,
+        image: Image, is_remove_bg: bool, bg_types: str, is_face_only: bool, is_crop: bool,
         padding: float, model: str, is_cpu_only: bool):
     processed = []
 
     if is_remove_bg:
-        _image = remove_bg(image, model, is_cpu_only)
+        _image = remove_bg(image, bg_types, model, is_cpu_only)
     else:
         _image = image
 
@@ -149,11 +156,11 @@ def process_image(
 
 
 def processing(single_image: Image, input_dir: str, output_dir: str, show_result: bool,
-               input_tab_state: int, is_remove_bg: bool, is_face_only: bool, is_crop: bool,
+               input_tab_state: int, is_remove_bg: bool, bg_types: str, is_face_only: bool, is_crop: bool,
                padding: float, model: str, is_cpu_only: bool):
     # 0: single
     if input_tab_state == 0:
-        processed = process_image(single_image, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only)
+        processed = process_image(single_image, is_remove_bg, bg_types, is_face_only, is_crop, padding, model, is_cpu_only)
         return processed
 
     elif input_tab_state == 2:
@@ -208,6 +215,7 @@ def on_ui_tabs():
                         show_result = gr.Checkbox(label="Show result images", value=True)
                 with gr.Accordion("Options", open=True):
                     is_remove_bg = gr.Checkbox(label="Remove Background", show_label=True, value=True)
+                    bg_color = gr.Dropdown(bg_types, label='Background Color', show_label=True, value='transparent')
                     is_face_only = gr.Checkbox(label="Face Only", show_label=True, value=True)
                     padding = gr.Slider(0.0, 2.0, value=0.8, step=0.1, label="Face Padding", show_label=True)
                     is_crop = gr.Checkbox(label="Crop to Square", show_label=True, value=True)
@@ -223,7 +231,7 @@ def on_ui_tabs():
                 submit.click(
                     processing,
                     inputs=[single_image, input_dir, output_dir, show_result, input_tab_state,
-                            is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only],
+                            is_remove_bg, bg_types, is_face_only, is_crop, padding, model, is_cpu_only],
                     outputs=gallery
                 )
 
