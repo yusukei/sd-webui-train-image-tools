@@ -82,8 +82,6 @@ def remove_bg(image: np.array, bg_type: str, model: str, is_cpu_only: bool):
 
 def get_crop_size(image: Image, x, y, width, height, padding):
     img_h, img_w, c = image.shape
-    # face_h = int(faces[i].bottom() - faces[i].top())
-    # face_w = int(faces[i].right() - faces[i].left())
 
     top = y - (height * padding)
     top = max(0, top)
@@ -97,7 +95,7 @@ def get_crop_size(image: Image, x, y, width, height, padding):
     right = (x + width) + (width * padding)
     right = min(img_w, right)
 
-    print(f'{x}, {y}, {x+width}, {y+height} -> {left}, {top}, {right}, {bottom}')
+    # print(f'{x}, {y}, {x+width}, {y+height} -> {left}, {top}, {right}, {bottom}')
     return (left, top, right, bottom)
 
 
