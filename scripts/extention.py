@@ -6,6 +6,7 @@ import gradio as gr
 import modules.shared as shared
 import numpy as np
 import onnxruntime as ort
+import urllib.request
 from PIL import Image
 from modules import script_callbacks
 from rembg import remove
@@ -79,7 +80,28 @@ def remove_bg(image: np.array, bg_type: str, model: str, is_cpu_only: bool):
     return _image
 
 
-def trimming_face(_image: Image, padding: float) -> list[Image]:
+def get_crop_size(image: Image, x, y, width, height, padding):
+    img_h, img_w, c = image.shape
+    # face_h = int(faces[i].bottom() - faces[i].top())
+    # face_w = int(faces[i].right() - faces[i].left())
+
+    top = y - (height * padding)
+    top = max(0, top)
+
+    bottom = (top + height) + (height * padding)
+    bottom = min(img_h, bottom)
+
+    left = x - (width * padding)
+    left = max(0, left)
+
+    right = (x + width) + (width * padding)
+    right = min(img_w, right)
+
+    print(f'{x}, {y}, {x+width}, {y+height} -> {left}, {top}, {right}, {bottom}')
+    return (left, top, right, bottom)
+
+
+def trimming_face_photo(_image: Image, padding: float) -> list[Image]:
     image = pil2cv(_image)
 
     face_detector = dlib.get_frontal_face_detector()
@@ -87,24 +109,46 @@ def trimming_face(_image: Image, padding: float) -> list[Image]:
 
     results = []
     for i in range(0, len(faces)):
-        img_h, img_w, c = image.shape
-        face_h = int(faces[i].bottom() - faces[i].top())
-        face_w = int(faces[i].right() - faces[i].left())
+        face = faces[i]
+        x = face.left()
+        y = face.top()
+        width = face.right() - face.left()
+        height = face.bottom() - face.top()
 
-        rect_top = int(faces[i].top()) - (face_h * padding)
-        if rect_top < 0:
-            rect_top = 0
-        rect_bottom = int(faces[i].bottom()) + (face_h * padding)
-        if rect_bottom > img_h:
-            rect_bottom = img_h
-        rect_left = int(faces[i].left()) - (face_w * padding)
-        if rect_left < 0:
-            rect_left = 0
-        rect_right = int(faces[i].right()) + (face_w * padding)
-        if rect_right > img_w:
-            rect_right = img_w
+        rect = get_crop_size(image, x, y, width, height, padding)
 
-        face_img = _image.crop((rect_left, rect_top, rect_right, rect_bottom))
+        face_img = _image.crop(rect)
+
+        results.append(face_img)
+
+    return results
+
+
+def trimming_face_anime(_image: Image, padding: float) -> list[Image]:
+    basedir = os.path.dirname(__file__)
+    cascade_file = os.path.join(basedir, 'lbpcascade_animeface.xml')
+    url = 'https://raw.githubusercontent.com/nagadomi/lbpcascade_animeface/master/lbpcascade_animeface.xml'
+    if not os.path.exists('lbpcascade_animeface.xml'):
+        with open(cascade_file, 'w') as fp:
+            body = urllib.request.urlopen(url).read().decode('utf-8')
+            fp.write(body)
+
+    cascade = cv2.CascadeClassifier(cascade_file)
+
+    image = pil2cv(_image)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.equalizeHist(gray)
+
+    faces = cascade.detectMultiScale(gray,
+                                 # detector options
+                                 scaleFactor=1.1,
+                                 minNeighbors=5,
+                                 minSize=(24, 24))
+
+    results = []
+    for (x, y, w, h) in faces:
+        rect = get_crop_size(image, x, y, w, h, padding)
+        face_img = _image.crop(rect)
 
         results.append(face_img)
 
@@ -132,7 +176,7 @@ def crop_to_square(image: Image) -> Image:
 
 
 def process_image(
-        image: Image, is_remove_bg: bool, bg_type: str, is_face_only: bool, is_crop: bool,
+        image: Image, is_remove_bg: bool, bg_type: str, is_face_only: bool, face_type: int, is_crop: bool,
         padding: float, model: str, is_cpu_only: bool):
     processed = []
 
@@ -142,7 +186,10 @@ def process_image(
         _image = image
 
     if is_face_only:
-        processed.extend(trimming_face(_image, padding))
+        if face_type == 'Photo':
+            processed.extend(trimming_face_photo(_image, padding))
+        elif face_type == 'Anime':
+            processed.extend(trimming_face_anime(_image, padding))
     else:
         processed.append(_image)
 
@@ -156,11 +203,11 @@ def process_image(
 
 
 def processing(single_image: Image, input_dir: str, output_dir: str, show_result: bool,
-               input_tab_state: int, is_remove_bg: bool, bg_type: str, is_face_only: bool, is_crop: bool,
+               input_tab_state: int, is_remove_bg: bool, bg_type: str, is_face_only: bool, face_type: int, is_crop: bool,
                padding: float, model: str, is_cpu_only: bool):
     # 0: single
     if input_tab_state == 0:
-        processed = process_image(single_image, is_remove_bg, bg_type, is_face_only, is_crop, padding, model, is_cpu_only)
+        processed = process_image(single_image, is_remove_bg, bg_type, is_face_only, face_type, is_crop, padding, model, is_cpu_only)
         return processed
 
     elif input_tab_state == 2:
@@ -176,7 +223,7 @@ def processing(single_image: Image, input_dir: str, output_dir: str, show_result
                 continue
             print(f'{count}/{size} {f}')
 
-            imgs = process_image(image, is_remove_bg, is_face_only, is_crop, padding, model, is_cpu_only)
+            imgs = process_image(image, is_remove_bg, is_face_only, face_type, is_crop, padding, model, is_cpu_only)
             processed.extend(imgs)
 
             if output_dir != "":
@@ -220,6 +267,7 @@ def on_ui_tabs():
                     is_cpu_only = gr.Checkbox(label="CPU Only", show_label=True, value=True)
                 with gr.Accordion("Crop a face", open=True):
                     is_face_only = gr.Checkbox(label="Enable", show_label=True, value=True)
+                    face_type = gr.Radio(['Photo', 'Anime'], label='Face Type', value='Photo')
                     padding = gr.Slider(0.0, 2.0, value=0.8, step=0.1, label="Face Padding", show_label=True)
                 with gr.Accordion("Crop to Square", open=True):
                     is_crop = gr.Checkbox(label="Enable", show_label=True, value=True)
@@ -233,7 +281,7 @@ def on_ui_tabs():
                 submit.click(
                     processing,
                     inputs=[single_image, input_dir, output_dir, show_result, input_tab_state,
-                            is_remove_bg, bg_type, is_face_only, is_crop, padding, model, is_cpu_only],
+                            is_remove_bg, bg_type, is_face_only, face_type, is_crop, padding, model, is_cpu_only],
                     outputs=gallery
                 )
 
